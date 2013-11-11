@@ -55,7 +55,8 @@ namespace NovaNetImport
                         Console.WriteLine("file name: " + file.FullName);
                         if (! file.Name.ToUpper().StartsWith("PR"))
                         {
-                            //archive file
+                            //skip all files except files that start with pr
+                            //maybe archive file
                             continue;
                         }
 
@@ -65,6 +66,13 @@ namespace NovaNetImport
                                     datePart.Substring(4, 2);
                         var fileDate = DateTime.Parse(sDate);
                         Console.WriteLine(fileDate);
+                        if (si.LastFileDate.HasValue)
+                        {
+                            //if the last date is greater than the file date
+                            if (si.LastFileDate.Value.CompareTo(fileDate) >= 0)
+                                continue;
+                        }
+
                     }
                 }
             }
