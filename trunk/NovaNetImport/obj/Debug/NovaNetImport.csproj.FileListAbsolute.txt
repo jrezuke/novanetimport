@@ -1,8 +1,0 @@
-D:\0Work\NovaNetImport\NovaNetImport\bin\Debug\NovaNetImport.exe.config
-D:\0Work\NovaNetImport\NovaNetImport\bin\Debug\NLog.config
-D:\0Work\NovaNetImport\NovaNetImport\bin\Debug\NovaNetImport.exe
-D:\0Work\NovaNetImport\NovaNetImport\bin\Debug\NovaNetImport.pdb
-D:\0Work\NovaNetImport\NovaNetImport\bin\Debug\NLog.xml
-D:\0Work\NovaNetImport\NovaNetImport\obj\Debug\NovaNetImport.csprojResolveAssemblyReference.cache
-D:\0Work\NovaNetImport\NovaNetImport\obj\Debug\NovaNetImport.exe
-D:\0Work\NovaNetImport\NovaNetImport\obj\Debug\NovaNetImport.pdb
