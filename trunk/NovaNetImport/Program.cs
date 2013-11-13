@@ -63,6 +63,8 @@ namespace NovaNetImport
 
                 foreach (var file in fileList)
                 {
+                    if (file.Name.Contains("Copy"))
+                        continue;   
                     var streamRdr = file.OpenText();
                     string line;
                     string[] colNameList= {};
@@ -77,14 +79,44 @@ namespace NovaNetImport
                             continue;
                         }
 
+                        //the sample_key_num column appears in the row 3 times - just capture the first appearance
+                        var isFirst = true;
                         for (int i=0; i<columns.Length-1; i++)
                         {
                             var col = columns[i];
                             var colName = colNameList[i];
+                            if (colName == "sample_key_num")
+                            {
+                                if (isFirst)
+                                    isFirst = false;
+                                else
+                                    continue;
+                                
+                            }
                             var dbCol = dbColList.Find(x => x.Name == colName);
                             if (dbCol != null)
+                            {
                                 Console.WriteLine("Col name: " + colName);
+                                dbCol.Value = col;
+                                if (colName == "patient_id")
+                                {
+                                    var dbSubj = dbColList.Find(x => x.Name == "subjectId");
+                                    var subId = "";
+                                    if(col.Length == 9)
+                                        subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" + col.Substring(6);
+                                    dbSubj.Value = subId;
+                                }
+                            }
                         }
+
+                        //special db columns
+                        var dbColSpecial = dbColList.Find(x => x.Name == "computerName");
+                        dbColSpecial.Value = file.Directory.Name;
+
+                        dbColSpecial = dbColList.Find(x => x.Name == "siteId");
+                        dbColSpecial.Value = si.Id.ToString();
+                        
+                        InsertRowIntoDatabase(dbColList, file.Directory.Name, file.FullName, rows.ToString());
 
                         rows++;
 
@@ -93,6 +125,41 @@ namespace NovaNetImport
             }
 
             Console.Read();
+        }
+
+        private static void InsertRowIntoDatabase(List<DBnnColumn> dbColList, string machine, string file, string row)
+        {
+            var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
+            using (var conn = new SqlConnection(strConn))
+            {
+                var cmd = new SqlCommand
+                          {
+                              Connection = conn,
+                              CommandText = "AddNovanetImport",
+                              CommandType = CommandType.StoredProcedure
+                          };
+                SqlParameter param;
+                foreach (var col in dbColList)
+                {
+                    if (col.Name == "Id")
+                        continue;
+                    param = new SqlParameter("@" + col.Name, col.Value);
+                    cmd.Parameters.Add(param);
+                }
+                try
+                {
+                    conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+                catch (Exception ex)
+                {
+                    var sMsg = "novanet import error - computer:" + machine + ", file: " + file + ", row: " + row ;
+                    sMsg += ex.Message;
+                    Logger.LogException(LogLevel.Error, sMsg, ex);
+                }
+                conn.Close();
+            }
+            
         }
 
         private static List<FileInfo> GetFileList(SiteInfo si, ref DateTime newLastDate)
