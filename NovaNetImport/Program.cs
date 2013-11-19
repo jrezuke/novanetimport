@@ -78,6 +78,8 @@ namespace NovaNetImport
 
                         //the sample_key_num column appears in the row 3 times - just capture the first appearance
                         var isFirst = true;
+                        var bNoPatientId = false;
+                        var subId = "";
                         for (int i=0; i<columns.Length-1; i++)
                         {
                             var col = columns[i];
@@ -97,11 +99,37 @@ namespace NovaNetImport
                                 dbCol.Value = col;
                                 if (colName == "patient_id")
                                 {
-                                    var dbSubj = dbColList.Find(x => x.Name == "subjectId");
-                                    var subId = "";
-                                    if(col.Length == 9)
-                                        subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" + col.Substring(6);
-                                    dbSubj.Value = subId;
+                                    if (string.IsNullOrEmpty(col))
+                                    {
+                                        bNoPatientId = true;
+                                    }
+                                    else
+                                    {
+                                        var dbSubj = dbColList.Find(x => x.Name == "subjectId");
+                                        if (col.Length == 9)
+                                            subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
+                                                    col.Substring(8);
+                                        else
+                                        {
+                                            Logger.Warn("Warning: Could not extract subject id - file name:" + file.FullName + ", row:" + rows);
+                                        }
+                                        dbSubj.Value = subId;
+                                    }
+                                }
+                                if (colName == "medrec_num")
+                                {
+                                    if (bNoPatientId)
+                                    {
+                                        var dbSubj = dbColList.Find(x => x.Name == "subjectId");
+                                        if (col.Length == 9 && col.StartsWith("HP"))
+                                            subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
+                                                    col.Substring(8);
+                                        else
+                                        {
+                                            Logger.Warn("Warning: Could not extract subject id - file name:" + file.FullName + ", row:" + rows);
+                                        }
+                                        dbSubj.Value = subId;
+                                    }
                                 }
                             }
                         }
