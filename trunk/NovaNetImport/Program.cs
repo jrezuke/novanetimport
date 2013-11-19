@@ -1,12 +1,9 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
 using System.IO;
-using System.Linq;
-using System.Security.Policy;
 using NLog;
 
 namespace NovaNetImport
@@ -31,7 +28,7 @@ namespace NovaNetImport
                 
                 //get file list not yet imported
                 var newLastDate = DateTime.MinValue;
-                List<FileInfo> fileList = GetFileList(si, ref newLastDate);
+                IEnumerable<FileInfo> fileList = GetFileList(si, ref newLastDate);
 
                 //get the column schema for checks insulin recommendation worksheet
                 var dbColList = new List<DBnnColumn>();
@@ -44,8 +41,8 @@ namespace NovaNetImport
                     var rdr = cmd.ExecuteReader(CommandBehavior.SchemaOnly);
                     for (int i = 0; i < rdr.FieldCount; i++)
                     {
-                        var col = new DBnnColumn()
-                        {
+                        var col = new DBnnColumn
+                                  {
                             Name = rdr.GetName(i),
                             DataType = rdr.GetDataTypeName(i)
                         };
@@ -111,12 +108,15 @@ namespace NovaNetImport
 
                         //special db columns
                         var dbColSpecial = dbColList.Find(x => x.Name == "computerName");
-                        dbColSpecial.Value = file.Directory.Name;
+                        if (file.Directory != null)
+                        {
+                            dbColSpecial.Value = file.Directory.Name;
 
-                        dbColSpecial = dbColList.Find(x => x.Name == "siteId");
-                        dbColSpecial.Value = si.Id.ToString();
+                            dbColSpecial = dbColList.Find(x => x.Name == "siteId");
+                            dbColSpecial.Value = si.Id.ToString();
                         
-                        InsertRowIntoDatabase(dbColList, file.Directory.Name, file.FullName, rows.ToString());
+                            InsertRowIntoDatabase(dbColList, file.Directory.Name, file.FullName, rows.ToString());
+                        }
 
                         rows++;
 
@@ -127,7 +127,7 @@ namespace NovaNetImport
             Console.Read();
         }
 
-        private static void InsertRowIntoDatabase(List<DBnnColumn> dbColList, string machine, string file, string row)
+        private static void InsertRowIntoDatabase(IEnumerable<DBnnColumn> dbColList, string machine, string file, string row)
         {
             var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
             using (var conn = new SqlConnection(strConn))
@@ -138,12 +138,11 @@ namespace NovaNetImport
                               CommandText = "AddNovanetImport",
                               CommandType = CommandType.StoredProcedure
                           };
-                SqlParameter param;
                 foreach (var col in dbColList)
                 {
                     if (col.Name == "Id")
                         continue;
-                    param = new SqlParameter("@" + col.Name, col.Value);
+                    var param = new SqlParameter("@" + col.Name, col.Value);
                     cmd.Parameters.Add(param);
                 }
                 try
@@ -162,7 +161,7 @@ namespace NovaNetImport
             
         }
 
-        private static List<FileInfo> GetFileList(SiteInfo si, ref DateTime newLastDate)
+        private static IEnumerable<FileInfo> GetFileList(SiteInfo si, ref DateTime newLastDate)
         {
             var list = new List<FileInfo>();
 
@@ -222,7 +221,7 @@ namespace NovaNetImport
             {
                 try
                 {
-                    var cmd = new SqlCommand("", conn) { CommandType = System.Data.CommandType.StoredProcedure, CommandText = "GetSitesActive" };
+                    var cmd = new SqlCommand("", conn) { CommandType = CommandType.StoredProcedure, CommandText = "GetSitesActive" };
 
                     conn.Open();
                     var rdr = cmd.ExecuteReader();
