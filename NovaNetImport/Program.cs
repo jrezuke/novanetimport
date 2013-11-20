@@ -131,6 +131,13 @@ namespace NovaNetImport
                                         dbSubj.Value = subId;
                                     }
                                 }
+                                if (colName == "result_str_val")
+                                {
+                                    if (string.IsNullOrEmpty(col))
+                                    {
+                                        col = "-999";
+                                    }
+                                }
                             }
                         }
 
