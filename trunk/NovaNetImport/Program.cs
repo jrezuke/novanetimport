@@ -15,7 +15,7 @@ namespace NovaNetImport
         static void Main(string[] args)
         {
             Logger.Info("Starting Novanet Import Service");
-            
+
             var basePath = AppDomain.CurrentDomain.BaseDirectory;
 
             //get sites and load into list of siteInfo 
@@ -25,13 +25,15 @@ namespace NovaNetImport
             foreach (var si in sites)
             {
                 Console.WriteLine("Site: " + si.Name);
-                
+                //Get the folder file last dates
+                GetFolderFilesLastDate(si);
+
                 //get file list not yet imported
                 var newLastDate = DateTime.MinValue;
                 IEnumerable<FileInfo> fileList = GetFileList(si, ref newLastDate);
 
                 //get the column schema for checks insulin recommendation worksheet
-                var dbColList = new List<DBnnColumn>();
+                var dbColList = new List<DbNnColumn>();
                 var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
                 using (var conn = new SqlConnection(strConn))
                 {
@@ -41,11 +43,11 @@ namespace NovaNetImport
                     var rdr = cmd.ExecuteReader(CommandBehavior.SchemaOnly);
                     for (int i = 0; i < rdr.FieldCount; i++)
                     {
-                        var col = new DBnnColumn
+                        var col = new DbNnColumn
                                   {
-                            Name = rdr.GetName(i),
-                            DataType = rdr.GetDataTypeName(i)
-                        };
+                                      Name = rdr.GetName(i),
+                                      DataType = rdr.GetDataTypeName(i)
+                                  };
 
                         dbColList.Add(col);
                         var fieldType = rdr.GetFieldType(i);
@@ -54,24 +56,24 @@ namespace NovaNetImport
                             col.FieldType = fieldType.ToString();
                         }
 
-                        
+
                     }
                 }//using (var conn = new SqlConnection(strConn))
 
                 foreach (var file in fileList)
                 {
-                    if (file.Name.Contains("Copy"))
-                        continue;   
+                    //if (file.Name.Contains("Copy"))
+                    //    continue;   
                     var streamRdr = file.OpenText();
                     string line;
-                    string[] colNameList= {};
+                    string[] colNameList = { };
                     var rows = 0;
                     while ((line = streamRdr.ReadLine()) != null)
                     {
                         var columns = line.Split(',');
                         if (rows == 0)
                         {
-                            colNameList = (string[]) columns.Clone();
+                            colNameList = (string[])columns.Clone();
                             rows++;
                             continue;
                         }
@@ -80,7 +82,7 @@ namespace NovaNetImport
                         var isFirst = true;
                         var bNoPatientId = false;
                         var subId = "";
-                        for (int i=0; i<columns.Length-1; i++)
+                        for (int i = 0; i < columns.Length - 1; i++)
                         {
                             var col = columns[i];
                             var colName = colNameList[i];
@@ -90,7 +92,7 @@ namespace NovaNetImport
                                     isFirst = false;
                                 else
                                     continue;
-                                
+
                             }
                             var dbCol = dbColList.Find(x => x.Name == colName);
                             if (dbCol != null)
@@ -131,13 +133,13 @@ namespace NovaNetImport
                                         dbSubj.Value = subId;
                                     }
                                 }
-                                if (colName == "result_str_val")
-                                {
-                                    if (string.IsNullOrEmpty(col))
-                                    {
-                                        col = "-999";
-                                    }
-                                }
+                                //if (colName == "result_str_val")
+                                //{
+                                //    if (string.IsNullOrEmpty(col))
+                                //    {
+                                //        col = "-999";
+                                //    }
+                                //}
                             }
                         }
 
@@ -149,7 +151,7 @@ namespace NovaNetImport
 
                             dbColSpecial = dbColList.Find(x => x.Name == "siteId");
                             dbColSpecial.Value = si.Id.ToString();
-                        
+
                             InsertRowIntoDatabase(dbColList, file.Directory.Name, file.FullName, rows.ToString());
                         }
 
@@ -162,7 +164,50 @@ namespace NovaNetImport
             Console.Read();
         }
 
-        private static void InsertRowIntoDatabase(IEnumerable<DBnnColumn> dbColList, string machine, string file, string row)
+        private static void GetFolderFilesLastDate(SiteInfo si)
+        {
+            var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
+            using (var conn = new SqlConnection(strConn))
+            {
+                try
+                {
+                    var cmd = new SqlCommand
+                    {
+                        Connection = conn,
+                        CommandText = "GetNovanetLastFileDates",
+                        CommandType = CommandType.StoredProcedure
+                    };
+                    var parm = new SqlParameter("@siteId", si.Id);
+
+                    conn.Open();
+                    var rdr = cmd.ExecuteReader();
+
+                    si.FolderFileLastDates = new List<FolderFileLastDate>();
+                    while (rdr.Read())
+                    {
+                        var ffld = new FolderFileLastDate();
+                        int pos = rdr.GetOrdinal("Id");
+                        ffld.Id = rdr.GetInt32(pos);
+
+                        pos = rdr.GetOrdinal("MachineName");
+                        ffld.Name = rdr.GetString(pos);
+
+                        pos = rdr.GetOrdinal("LastFileDate");
+                        ffld.LastFileDate = rdr.IsDBNull(pos) ? (DateTime?)null : rdr.GetDateTime(pos);
+
+                        si.FolderFileLastDates.Add(ffld);
+                    }
+                    rdr.Close();
+
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex);
+                }
+            }
+        }
+
+        private static void InsertRowIntoDatabase(IEnumerable<DbNnColumn> dbColList, string machine, string file, string row)
         {
             var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
             using (var conn = new SqlConnection(strConn))
@@ -173,11 +218,18 @@ namespace NovaNetImport
                               CommandText = "AddNovanetImport",
                               CommandType = CommandType.StoredProcedure
                           };
+                SqlParameter param = null;
                 foreach (var col in dbColList)
                 {
                     if (col.Name == "Id")
                         continue;
-                    var param = new SqlParameter("@" + col.Name, col.Value);
+                    if (col.Name == "result_str_val")
+                    {
+                        if (string.IsNullOrEmpty(col.Value))
+                            param = new SqlParameter("@result_str_val", DBNull.Value);
+                    }
+                    else
+                        param = new SqlParameter("@" + col.Name, col.Value);
                     cmd.Parameters.Add(param);
                 }
                 try
@@ -187,13 +239,34 @@ namespace NovaNetImport
                 }
                 catch (Exception ex)
                 {
-                    var sMsg = "novanet import error - computer:" + machine + ", file: " + file + ", row: " + row ;
+                    var sMsg = "novanet import error - computer:" + machine + ", file: " + file + ", row: " + row;
                     sMsg += ex.Message;
                     Logger.LogException(LogLevel.Error, sMsg, ex);
                 }
                 conn.Close();
             }
-            
+
+        }
+
+        private static IEnumerable<FolderFileList> GetFolderAndFiles(SiteInfo si)
+        {
+            var list = new List<FolderFileList>();
+
+            //get the parent path for this site
+            var parentPath = ConfigurationManager.AppSettings["NovaNetUploadPath"];
+            parentPath = Path.Combine(parentPath, si.SiteId);
+
+            if (Directory.Exists(parentPath))
+            {
+                //get the folders (named after the computer name) 
+                var folders = Directory.EnumerateDirectories(parentPath);
+                foreach (var folder in folders)
+                {
+
+                }
+            }
+
+            return list;
         }
 
         private static IEnumerable<FileInfo> GetFileList(SiteInfo si, ref DateTime newLastDate)
@@ -215,7 +288,7 @@ namespace NovaNetImport
                     foreach (var file in di.GetFiles())
                     {
                         Console.WriteLine("file name: " + file.FullName);
-                        if (! file.Name.ToUpper().StartsWith("PR"))
+                        if (!file.Name.ToUpper().StartsWith("PR"))
                         {
                             //skip all files except files that start with pr
                             //maybe archive file
@@ -227,7 +300,7 @@ namespace NovaNetImport
                         var sDate = "20" + datePart.Substring(0, 2) + "/" + datePart.Substring(2, 2) + "/" +
                                     datePart.Substring(4, 2);
                         var fileDate = DateTime.Parse(sDate);
-                        
+
                         Console.WriteLine(fileDate);
                         if (si.LastFileDate.HasValue)
                         {
@@ -273,7 +346,7 @@ namespace NovaNetImport
                         si.SiteId = rdr.GetString(pos);
 
                         pos = rdr.GetOrdinal("LastNovanetFileDateImported");
-                        si.LastFileDate = rdr.IsDBNull(pos) ? (DateTime?) null : rdr.GetDateTime(pos);
+                        si.LastFileDate = rdr.IsDBNull(pos) ? (DateTime?)null : rdr.GetDateTime(pos);
 
                         sil.Add(si);
                     }
@@ -294,13 +367,28 @@ namespace NovaNetImport
         public string SiteId { get; set; }
         public string Name { get; set; }
         public DateTime? LastFileDate { get; set; }
+        public List<FolderFileLastDate> FolderFileLastDates { get; set; }
     }
 
-    public class DBnnColumn
+    public class DbNnColumn
     {
         public string Name { get; set; }
         public string DataType { get; set; }
         public string FieldType { get; set; }
         public string Value { get; set; }
+    }
+
+    public class FolderFileLastDate
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public DateTime? LastFileDate { get; set; }
+        public DateTime? NewLastFileDate { get; set; }
+    }
+
+    public class FolderFileList
+    {
+        public string Name { get; set; }
+        public List<FileInfo> Files { get; set; }
     }
 }
