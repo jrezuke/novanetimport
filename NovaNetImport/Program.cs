@@ -138,9 +138,9 @@ namespace NovaNetImport
 
                             }
                         } //foreach (var file in folderFileList.Files)
-                        UpdateLastFolderFileDates(si.FolderFileLastDates, si.Id);
+                        
                     } //foreach (var folderFileList in folderAndFiles)
-
+                    UpdateLastFolderFileDates(si.FolderFileLastDates, si.Id);
                     
                 }//if(si.FolderFileLastdates.Count >0)
             }
