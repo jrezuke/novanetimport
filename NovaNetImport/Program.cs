@@ -4,6 +4,7 @@ using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
 using System.IO;
+using System.Security.Policy;
 using NLog;
 
 namespace NovaNetImport
@@ -21,6 +22,9 @@ namespace NovaNetImport
             //get sites and load into list of siteInfo 
             var sites = GetSites();
 
+            //get the database column schema
+            var dbColList = GetDbColumnSchema();
+
             //iterate sites
             foreach (var si in sites)
             {
@@ -28,140 +32,225 @@ namespace NovaNetImport
                 //Get the folder file last dates
                 GetFolderFilesLastDate(si);
 
-                //get file list not yet imported
-                var newLastDate = DateTime.MinValue;
-                IEnumerable<FileInfo> fileList = GetFileList(si, ref newLastDate);
+                //get the folders and files not yet imported
+                var folderAndFiles = GetFolderAndFiles(si);
 
-                //get the column schema for checks insulin recommendation worksheet
-                var dbColList = new List<DbNnColumn>();
-                var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
-                using (var conn = new SqlConnection(strConn))
+                if (si.FolderFileLastDates.Count > 0)
                 {
-                    var cmd = new SqlCommand("SELECT * FROM Novanet", conn);
-                    conn.Open();
-
-                    var rdr = cmd.ExecuteReader(CommandBehavior.SchemaOnly);
-                    for (int i = 0; i < rdr.FieldCount; i++)
+                    foreach (var folderFileList in folderAndFiles)
                     {
-                        var col = new DbNnColumn
-                                  {
-                                      Name = rdr.GetName(i),
-                                      DataType = rdr.GetDataTypeName(i)
-                                  };
-
-                        dbColList.Add(col);
-                        var fieldType = rdr.GetFieldType(i);
-                        if (fieldType != null)
+                        foreach (var file in folderFileList.Files)
                         {
-                            col.FieldType = fieldType.ToString();
-                        }
-
-
-                    }
-                }//using (var conn = new SqlConnection(strConn))
-
-                foreach (var file in fileList)
-                {
-                    //if (file.Name.Contains("Copy"))
-                    //    continue;   
-                    var streamRdr = file.OpenText();
-                    string line;
-                    string[] colNameList = { };
-                    var rows = 0;
-                    while ((line = streamRdr.ReadLine()) != null)
-                    {
-                        var columns = line.Split(',');
-                        if (rows == 0)
-                        {
-                            colNameList = (string[])columns.Clone();
-                            rows++;
-                            continue;
-                        }
-
-                        //the sample_key_num column appears in the row 3 times - just capture the first appearance
-                        var isFirst = true;
-                        var bNoPatientId = false;
-                        var subId = "";
-                        for (int i = 0; i < columns.Length - 1; i++)
-                        {
-                            var col = columns[i];
-                            var colName = colNameList[i];
-                            if (colName == "sample_key_num")
+                            var streamRdr = file.OpenText();
+                            string line;
+                            string[] colNameList = {};
+                            var rows = 0;
+                            while ((line = streamRdr.ReadLine()) != null)
                             {
-                                if (isFirst)
-                                    isFirst = false;
-                                else
+                                var columns = line.Split(',');
+                                if (rows == 0)
+                                {
+                                    colNameList = (string[]) columns.Clone();
+                                    rows++;
                                     continue;
+                                }
 
-                            }
-                            var dbCol = dbColList.Find(x => x.Name == colName);
-                            if (dbCol != null)
-                            {
-                                Console.WriteLine("Col name: " + colName);
-                                dbCol.Value = col;
-                                if (colName == "patient_id")
+                                //the sample_key_num column appears in the row 3 times - just capture the first appearance
+                                var isFirst = true;
+                                var bNoPatientId = false;
+                                var subId = "";
+                                for (int i = 0; i < columns.Length - 1; i++)
                                 {
-                                    if (string.IsNullOrEmpty(col))
+                                    var col = columns[i];
+                                    var colName = colNameList[i];
+                                    if (colName == "sample_key_num")
                                     {
-                                        bNoPatientId = true;
-                                    }
-                                    else
-                                    {
-                                        var dbSubj = dbColList.Find(x => x.Name == "subjectId");
-                                        if (col.Length == 9)
-                                            subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
-                                                    col.Substring(8);
+                                        if (isFirst)
+                                            isFirst = false;
                                         else
+                                            continue;
+
+                                    }
+                                    var dbCol = dbColList.Find(x => x.Name == colName);
+                                    if (dbCol != null)
+                                    {
+                                        Console.WriteLine("Col name: " + colName);
+                                        dbCol.Value = col;
+                                        if (colName == "patient_id")
                                         {
-                                            Logger.Warn("Warning: Could not extract subject id - file name:" + file.FullName + ", row:" + rows);
+                                            if (string.IsNullOrEmpty(col))
+                                            {
+                                                bNoPatientId = true;
+                                            }
+                                            else
+                                            {
+                                                var dbSubj = dbColList.Find(x => x.Name == "subjectId");
+                                                if (col.Length == 9)
+                                                    subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
+                                                            col.Substring(8);
+                                                else
+                                                {
+                                                    Logger.Warn("Warning: Could not extract subject id - file name:" +
+                                                                file.FullName + ", row:" + rows);
+                                                }
+                                                dbSubj.Value = subId;
+                                            }
                                         }
-                                        dbSubj.Value = subId;
+                                        if (colName == "medrec_num")
+                                        {
+                                            if (bNoPatientId)
+                                            {
+                                                var dbSubj = dbColList.Find(x => x.Name == "subjectId");
+                                                if (col.Length == 9 && col.StartsWith("HP"))
+                                                    subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
+                                                            col.Substring(8);
+                                                else
+                                                {
+                                                    Logger.Warn("Warning: Could not extract subject id - file name:" +
+                                                                file.FullName + ", row:" + rows);
+                                                }
+                                                dbSubj.Value = subId;
+                                            }
+                                        }
+                                        //if (colName == "result_str_val")
+                                        //{
+                                        //    if (string.IsNullOrEmpty(col))
+                                        //    {
+                                        //        col = "-999";
+                                        //    }
+                                        //}
                                     }
                                 }
-                                if (colName == "medrec_num")
+
+                                //special db columns
+                                var dbColSpecial = dbColList.Find(x => x.Name == "computerName");
+                                if (file.Directory != null)
                                 {
-                                    if (bNoPatientId)
-                                    {
-                                        var dbSubj = dbColList.Find(x => x.Name == "subjectId");
-                                        if (col.Length == 9 && col.StartsWith("HP"))
-                                            subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
-                                                    col.Substring(8);
-                                        else
-                                        {
-                                            Logger.Warn("Warning: Could not extract subject id - file name:" + file.FullName + ", row:" + rows);
-                                        }
-                                        dbSubj.Value = subId;
-                                    }
+                                    dbColSpecial.Value = file.Directory.Name;
+
+                                    dbColSpecial = dbColList.Find(x => x.Name == "siteId");
+                                    dbColSpecial.Value = si.Id.ToString();
+
+                                    InsertRowIntoDatabase(dbColList, file.Directory.Name, file.FullName, rows.ToString());
                                 }
-                                //if (colName == "result_str_val")
-                                //{
-                                //    if (string.IsNullOrEmpty(col))
-                                //    {
-                                //        col = "-999";
-                                //    }
-                                //}
+
+                                rows++;
+
                             }
-                        }
+                        } //foreach (var file in folderFileList.Files)
+                        UpdateLastFolderFileDates(si.FolderFileLastDates, si.Id);
+                    } //foreach (var folderFileList in folderAndFiles)
 
-                        //special db columns
-                        var dbColSpecial = dbColList.Find(x => x.Name == "computerName");
-                        if (file.Directory != null)
-                        {
-                            dbColSpecial.Value = file.Directory.Name;
-
-                            dbColSpecial = dbColList.Find(x => x.Name == "siteId");
-                            dbColSpecial.Value = si.Id.ToString();
-
-                            InsertRowIntoDatabase(dbColList, file.Directory.Name, file.FullName, rows.ToString());
-                        }
-
-                        rows++;
-
-                    }
-                }
+                    
+                }//if(si.FolderFileLastdates.Count >0)
             }
 
             Console.Read();
+        }
+
+        private static void UpdateLastFolderFileDates(IEnumerable<FolderFileLastDate> ffList, int siteId)
+        {
+            foreach (var folderFileLastDate in ffList)
+            {
+                DateTime? lastDateTime = null;
+                //check for date change
+                if (folderFileLastDate.LastFileDate == null)
+                {
+                    lastDateTime = folderFileLastDate.NewLastFileDate;
+                }
+                else
+                {
+                    if (folderFileLastDate.NewLastFileDate != null)
+                    {
+                        if (folderFileLastDate.LastFileDate.Value.CompareTo(folderFileLastDate.NewLastFileDate.Value) <= 0)
+                        {
+                            lastDateTime = folderFileLastDate.NewLastFileDate.Value;
+                        }
+                    }
+                    else
+                    {
+                        return;
+                    }
+
+                }
+
+                if (folderFileLastDate.Id == 0)
+                {
+                    //insert new folder
+                    AddNewFolderFileLastDate(siteId, folderFileLastDate.Name, lastDateTime);
+                }
+                else
+                {
+                    UpdateFolderFileLastDate(folderFileLastDate.Id, lastDateTime);
+                }
+            }
+        }
+
+        private static void UpdateFolderFileLastDate(int id, DateTime? lastDateTime)
+        {
+            var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
+            using (var conn = new SqlConnection(strConn))
+            {
+                var cmd = new SqlCommand
+                {
+                    Connection = conn,
+                    CommandText = "UpdateNovanetFolderFileLastDate",
+                    CommandType = CommandType.StoredProcedure
+                };
+                var param = new SqlParameter("@id", id);
+                cmd.Parameters.Add(param);
+                param = lastDateTime.HasValue ? new SqlParameter("@lastFileDate", lastDateTime) : new SqlParameter("@lastFileDate", DBNull.Value);
+                cmd.Parameters.Add(param);
+
+                try
+                {
+                    conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+                catch (Exception ex)
+                {
+                    var sMsg = "novanet AddNewFolderFileLastDate  - id: " + id + ", last DateTime: " + lastDateTime;
+                    sMsg += ex.Message;
+                    Logger.LogException(LogLevel.Error, sMsg, ex);
+                }
+                conn.Close();
+            }
+        }
+
+        private static void AddNewFolderFileLastDate(int siteId, string folder, DateTime? lastDateTime)
+        {
+            var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
+            using (var conn = new SqlConnection(strConn))
+            {
+                var cmd = new SqlCommand
+                          {
+                              Connection = conn,
+                              CommandText = "AddNovanetFolderFileLastDate",
+                              CommandType = CommandType.StoredProcedure
+                          };
+                var param = new SqlParameter("@siteId", siteId);
+                cmd.Parameters.Add(param);
+                param = new SqlParameter("@folderName", folder);
+                cmd.Parameters.Add(param);
+                param = lastDateTime.HasValue ? new SqlParameter("@lastFileDate", lastDateTime) : new SqlParameter("@lastFileDate", DBNull.Value);
+                cmd.Parameters.Add(param);
+
+                try
+                {
+                    conn.Open();
+                    cmd.ExecuteNonQuery();
+                }
+                catch (Exception ex)
+                {
+                    var sMsg = "novanet AddNewFolderFileLastDate  - computer:" + folder  + ", siteId: " + siteId + ", last DateTime: " + lastDateTime;
+                    sMsg += ex.Message;
+                    Logger.LogException(LogLevel.Error, sMsg, ex);
+                }
+                conn.Close();
+            }
+
+
+
         }
 
         private static void GetFolderFilesLastDate(SiteInfo si)
@@ -177,7 +266,8 @@ namespace NovaNetImport
                         CommandText = "GetNovanetLastFileDates",
                         CommandType = CommandType.StoredProcedure
                     };
-                    var parm = new SqlParameter("@siteId", si.Id);
+                    var param = new SqlParameter("@siteId", si.Id);
+                    cmd.Parameters.Add(param);
 
                     conn.Open();
                     var rdr = cmd.ExecuteReader();
@@ -207,6 +297,38 @@ namespace NovaNetImport
             }
         }
 
+        private static List<DbNnColumn> GetDbColumnSchema()
+        {
+            //get the database column schema
+            var dbColList = new List<DbNnColumn>();
+            var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
+            using (var conn = new SqlConnection(strConn))
+            {
+                var cmd = new SqlCommand("SELECT * FROM Novanet", conn);
+                conn.Open();
+
+                var rdr = cmd.ExecuteReader(CommandBehavior.SchemaOnly);
+                for (int i = 0; i < rdr.FieldCount; i++)
+                {
+                    var col = new DbNnColumn
+                              {
+                                  Name = rdr.GetName(i),
+                                  DataType = rdr.GetDataTypeName(i)
+                              };
+
+                    dbColList.Add(col);
+                    var fieldType = rdr.GetFieldType(i);
+                    if (fieldType != null)
+                    {
+                        col.FieldType = fieldType.ToString();
+                    }
+
+
+                }
+            }//using (var conn = new SqlConnection(strConn))
+            return dbColList;
+        }
+        
         private static void InsertRowIntoDatabase(IEnumerable<DbNnColumn> dbColList, string machine, string file, string row)
         {
             var strConn = ConfigurationManager.ConnectionStrings["Halfpint"].ToString();
@@ -227,9 +349,14 @@ namespace NovaNetImport
                     {
                         if (string.IsNullOrEmpty(col.Value))
                             param = new SqlParameter("@result_str_val", DBNull.Value);
+                        else
+                        {
+                            param = new SqlParameter("@result_str_val",col.Value);
+                        }
                     }
                     else
                         param = new SqlParameter("@" + col.Name, col.Value);
+                    
                     cmd.Parameters.Add(param);
                 }
                 try
@@ -260,10 +387,69 @@ namespace NovaNetImport
             {
                 //get the folders (named after the computer name) 
                 var folders = Directory.EnumerateDirectories(parentPath);
+                var newLastDate = new DateTime();
+
                 foreach (var folder in folders)
                 {
+                    var folderAndFile = new FolderFileList();
+                    list.Add(folderAndFile);
 
-                }
+                    var di = new DirectoryInfo(folder);
+                    folderAndFile.Name = di.Name;
+
+                    DateTime? lastFileDate = null;
+
+                    var lastFolderFileDate = si.FolderFileLastDates.Find(x => x.Name == di.Name);
+                    if (lastFolderFileDate == null)
+                    {
+                        //if the site doesn't have this folder then add it
+                        lastFolderFileDate = new FolderFileLastDate { Name = di.Name };
+                        si.FolderFileLastDates.Add(lastFolderFileDate);
+                    }
+                    else
+                    {
+                        if (lastFolderFileDate.LastFileDate.HasValue)
+                        {
+                            lastFileDate = lastFolderFileDate.LastFileDate;
+                        }
+                    }
+
+                    foreach (var file in di.GetFiles())
+                    {
+                        Console.WriteLine("file name: " + file.FullName);
+                        if (!file.Name.ToUpper().StartsWith("PR"))
+                        {
+                            //skip all files except files that start with pr
+                            //maybe archive file
+                            continue;
+                        }
+
+                        //extract the date from the file name
+                        var datePart = file.Name.Substring(2, 6);
+                        var sDate = "20" + datePart.Substring(0, 2) + "/" + datePart.Substring(2, 2) + "/" +
+                                    datePart.Substring(4, 2);
+                        var fileDate = DateTime.Parse(sDate);
+                        if (lastFileDate != null && lastFileDate.Value.CompareTo(fileDate) >= 0)
+                            continue;
+
+                        folderAndFile.Files.Add(file);
+
+                        if (newLastDate.CompareTo(fileDate) < 0)
+                            newLastDate = fileDate;
+
+                    }//foreach (var file in di.GetFiles())
+
+                    if (lastFolderFileDate.LastFileDate == null) 
+                        lastFolderFileDate.NewLastFileDate = newLastDate;
+                    else
+                    {
+                        if(newLastDate.CompareTo(lastFolderFileDate.LastFileDate.Value) > 0)
+                            lastFolderFileDate.NewLastFileDate = newLastDate;
+                    }
+                    
+                }//foreach (var folder in folders)
+
+
             }
 
             return list;
@@ -363,6 +549,10 @@ namespace NovaNetImport
 
     public class SiteInfo
     {
+        public SiteInfo()
+        {
+                 
+        }
         public int Id { get; set; }
         public string SiteId { get; set; }
         public string Name { get; set; }
@@ -388,6 +578,10 @@ namespace NovaNetImport
 
     public class FolderFileList
     {
+        public FolderFileList()
+        {
+            Files = new List<FileInfo>();
+        }
         public string Name { get; set; }
         public List<FileInfo> Files { get; set; }
     }
