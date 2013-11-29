@@ -41,6 +41,7 @@ namespace NovaNetImport
                     {
                         foreach (var file in folderFileList.Files)
                         {
+                            Console.WriteLine("file name: " + file.Name);
                             var streamRdr = file.OpenText();
                             string line;
                             string[] colNameList = {};
@@ -74,7 +75,6 @@ namespace NovaNetImport
                                     var dbCol = dbColList.Find(x => x.Name == colName);
                                     if (dbCol != null)
                                     {
-                                        Console.WriteLine("Col name: " + colName);
                                         dbCol.Value = col;
                                         if (colName == "patient_id")
                                         {
@@ -124,6 +124,7 @@ namespace NovaNetImport
 
                                 //special db columns
                                 var dbColSpecial = dbColList.Find(x => x.Name == "computerName");
+                                
                                 if (file.Directory != null)
                                 {
                                     dbColSpecial.Value = file.Directory.Name;
@@ -131,9 +132,14 @@ namespace NovaNetImport
                                     dbColSpecial = dbColList.Find(x => x.Name == "siteId");
                                     dbColSpecial.Value = si.Id.ToString();
 
+                                    dbColSpecial = dbColList.Find(x => x.Name == "fileName");
+                                    dbColSpecial.Value = file.Name;
+
                                     InsertRowIntoDatabase(dbColList, file.Directory.Name, file.FullName, rows.ToString());
                                 }
+                                
 
+                                
                                 rows++;
 
                             }
@@ -145,7 +151,7 @@ namespace NovaNetImport
                 }//if(si.FolderFileLastdates.Count >0)
             }
 
-            Console.Read();
+            //Console.Read();
         }
 
         private static void UpdateLastFolderFileDates(IEnumerable<FolderFileLastDate> ffList, int siteId)
@@ -455,55 +461,55 @@ namespace NovaNetImport
             return list;
         }
 
-        private static IEnumerable<FileInfo> GetFileList(SiteInfo si, ref DateTime newLastDate)
-        {
-            var list = new List<FileInfo>();
+        //private static IEnumerable<FileInfo> GetFileList(SiteInfo si, ref DateTime newLastDate)
+        //{
+        //    var list = new List<FileInfo>();
 
-            //get the parent path for this site
-            var parentPath = ConfigurationManager.AppSettings["NovaNetUploadPath"];
-            parentPath = Path.Combine(parentPath, si.SiteId);
+        //    //get the parent path for this site
+        //    var parentPath = ConfigurationManager.AppSettings["NovaNetUploadPath"];
+        //    parentPath = Path.Combine(parentPath, si.SiteId);
 
-            if (Directory.Exists(parentPath))
-            {
-                //get the folders (named after the computer name) 
-                var folders = Directory.EnumerateDirectories(parentPath);
-                foreach (var folder in folders)
-                {
-                    Console.WriteLine("Folder: " + folder);
-                    var di = new DirectoryInfo(folder);
-                    foreach (var file in di.GetFiles())
-                    {
-                        Console.WriteLine("file name: " + file.FullName);
-                        if (!file.Name.ToUpper().StartsWith("PR"))
-                        {
-                            //skip all files except files that start with pr
-                            //maybe archive file
-                            continue;
-                        }
+        //    if (Directory.Exists(parentPath))
+        //    {
+        //        //get the folders (named after the computer name) 
+        //        var folders = Directory.EnumerateDirectories(parentPath);
+        //        foreach (var folder in folders)
+        //        {
+        //            Console.WriteLine("Folder: " + folder);
+        //            var di = new DirectoryInfo(folder);
+        //            foreach (var file in di.GetFiles())
+        //            {
+        //                Console.WriteLine("file name: " + file.FullName);
+        //                if (!file.Name.ToUpper().StartsWith("PR"))
+        //                {
+        //                    //skip all files except files that start with pr
+        //                    //maybe archive file
+        //                    continue;
+        //                }
 
-                        //extract the date from the file name
-                        var datePart = file.Name.Substring(2, 6);
-                        var sDate = "20" + datePart.Substring(0, 2) + "/" + datePart.Substring(2, 2) + "/" +
-                                    datePart.Substring(4, 2);
-                        var fileDate = DateTime.Parse(sDate);
+        //                //extract the date from the file name
+        //                var datePart = file.Name.Substring(2, 6);
+        //                var sDate = "20" + datePart.Substring(0, 2) + "/" + datePart.Substring(2, 2) + "/" +
+        //                            datePart.Substring(4, 2);
+        //                var fileDate = DateTime.Parse(sDate);
 
-                        Console.WriteLine(fileDate);
-                        if (si.LastFileDate.HasValue)
-                        {
-                            //if the last date is greater than the file date
-                            if (si.LastFileDate.Value.CompareTo(fileDate) >= 0)
-                                continue;
-                        }
-                        if (newLastDate.CompareTo(fileDate) < 0)
-                            newLastDate = fileDate;
-                        list.Add(file);
-                    }
-                }
-            }
-            //get the file list
+        //                Console.WriteLine(fileDate);
+        //                if (si.LastFileDate.HasValue)
+        //                {
+        //                    //if the last date is greater than the file date
+        //                    if (si.LastFileDate.Value.CompareTo(fileDate) >= 0)
+        //                        continue;
+        //                }
+        //                if (newLastDate.CompareTo(fileDate) < 0)
+        //                    newLastDate = fileDate;
+        //                list.Add(file);
+        //            }
+        //        }
+        //    }
+        //    //get the file list
 
-            return list;
-        }
+        //    return list;
+        //}
 
         private static IEnumerable<SiteInfo> GetSites()
         {
@@ -531,8 +537,8 @@ namespace NovaNetImport
                         pos = rdr.GetOrdinal("SiteID");
                         si.SiteId = rdr.GetString(pos);
 
-                        pos = rdr.GetOrdinal("LastNovanetFileDateImported");
-                        si.LastFileDate = rdr.IsDBNull(pos) ? (DateTime?)null : rdr.GetDateTime(pos);
+                        //pos = rdr.GetOrdinal("LastNovanetFileDateImported");
+                        //si.LastFileDate = rdr.IsDBNull(pos) ? (DateTime?)null : rdr.GetDateTime(pos);
 
                         sil.Add(si);
                     }
@@ -556,7 +562,7 @@ namespace NovaNetImport
         public int Id { get; set; }
         public string SiteId { get; set; }
         public string Name { get; set; }
-        public DateTime? LastFileDate { get; set; }
+        //public DateTime? LastFileDate { get; set; }
         public List<FolderFileLastDate> FolderFileLastDates { get; set; }
     }
 
