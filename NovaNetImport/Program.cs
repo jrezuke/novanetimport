@@ -5,6 +5,7 @@ using System.Data;
 using System.Data.SqlClient;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using NLog;
 
 namespace NovaNetImport
@@ -34,11 +35,15 @@ namespace NovaNetImport
 
                 //get the folders and files not yet imported
                 var folderAndFiles = GetFolderAndFiles(si);
-
+                
                 if (si.FolderFileLastDates.Count > 0)
                 {
                     foreach (var folderFileList in folderAndFiles)
                     {
+                        var folderName = folderFileList.Name;
+                        
+
+                        //if(si.FolderFileLastDates)
                         foreach (var file in folderFileList.Files)
                         {
                             Console.WriteLine("file name: " + file.Name);
@@ -175,7 +180,7 @@ namespace NovaNetImport
                     }
                     else
                     {
-                        return;
+                        continue;
                     }
 
                 }
