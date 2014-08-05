@@ -35,98 +35,101 @@ namespace NovaNetImport
 
                 //get the folders and files not yet imported
                 var folderAndFiles = GetFolderAndFiles(si);
-                
+
                 if (si.FolderFileLastDates.Count > 0)
                 {
                     foreach (var folderFileList in folderAndFiles)
                     {
                         var folderName = folderFileList.Name;
-                        
+
 
                         //if(si.FolderFileLastDates)
                         foreach (var file in folderFileList.Files)
                         {
                             Console.WriteLine("file name: " + file.Name);
-                            var streamRdr = file.OpenText();
-                            string line;
-                            string[] colNameList = { };
-                            var rows = 0;
-                            while ((line = streamRdr.ReadLine()) != null)
+                            using (var streamRdr = file.OpenText())
                             {
-                                var columns = line.Split(',');
-                                if (rows == 0)
+                                string line;
+                                string[] colNameList = { };
+                                var rows = 0;
+                                while ((line = streamRdr.ReadLine()) != null)
                                 {
-                                    colNameList = (string[])columns.Clone();
-                                    rows++;
-                                    continue;
-                                }
-
-                                //the sample_key_num column appears in the row 3 times - just capture the first appearance
-                                var isFirst = true;
-                                var bNoPatientId = false;
-                                var subId = "";
-                                for (int i = 0; i < columns.Length - 1; i++)
-                                {
-                                    var col = columns[i];
-                                    var colName = colNameList[i];
-                                    if (colName == "sample_key_num")
+                                    var columns = line.Split(',');
+                                    if (rows == 0)
                                     {
-                                        if (isFirst)
-                                            isFirst = false;
-                                        else
-                                            continue;
-
+                                        colNameList = (string[])columns.Clone();
+                                        rows++;
+                                        continue;
                                     }
-                                    var dbCol = dbColList.Find(x => x.Name == colName);
-                                    if (dbCol != null)
+
+                                    //the sample_key_num column appears in the row 3 times - just capture the first appearance
+                                    var isFirst = true;
+                                    var bNoPatientId = false;
+                                    var subId = "";
+                                    for (int i = 0; i < columns.Length - 1; i++)
                                     {
-                                        dbCol.Value = col;
-                                        if (colName == "patient_id")
+                                        var col = columns[i];
+                                        var colName = colNameList[i];
+                                        if (colName == "sample_key_num")
                                         {
-                                            if (string.IsNullOrEmpty(col))
-                                            {
-                                                bNoPatientId = true;
-                                            }
+                                            if (isFirst)
+                                                isFirst = false;
                                             else
-                                            {
-                                                var dbSubj = dbColList.Find(x => x.Name == "subjectId");
-                                                if (col.Length == 9)
-                                                    subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
-                                                            col.Substring(8);
-                                                else
-                                                {
-                                                    Logger.Warn("Warning: Could not extract subject id - file name:" +
-                                                                file.FullName + ", row:" + rows);
-                                                }
-                                                dbSubj.Value = subId;
-                                            }
+                                                continue;
+
                                         }
-                                        if (colName == "medrec_num")
+                                        var dbCol = dbColList.Find(x => x.Name == colName);
+                                        if (dbCol != null)
                                         {
-                                            if (bNoPatientId)
+                                            dbCol.Value = col;
+                                            if (colName == "patient_id")
                                             {
-                                                var dbSubj = dbColList.Find(x => x.Name == "subjectId");
-                                                if (col.Length == 9 && col.StartsWith("HP"))
-                                                    subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
-                                                            col.Substring(8);
+                                                if (string.IsNullOrEmpty(col))
+                                                {
+                                                    bNoPatientId = true;
+                                                }
                                                 else
                                                 {
-                                                    Logger.Warn("Warning: Could not extract subject id - file name:" +
-                                                                file.FullName + ", row:" + rows);
+                                                    var dbSubj = dbColList.Find(x => x.Name == "subjectId");
+                                                    if (col.Length == 9)
+                                                        subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
+                                                                col.Substring(8);
+                                                    else
+                                                    {
+                                                        Logger.Warn(
+                                                            "Warning: Could not extract subject id - file name:" +
+                                                            file.FullName + ", row:" + rows);
+                                                    }
+                                                    dbSubj.Value = subId;
                                                 }
-                                                dbSubj.Value = subId;
                                             }
+                                            if (colName == "medrec_num")
+                                            {
+                                                if (bNoPatientId)
+                                                {
+                                                    var dbSubj = dbColList.Find(x => x.Name == "subjectId");
+                                                    if (col.Length == 9 && col.StartsWith("HP"))
+                                                        subId = col.Substring(2, 2) + "-" + col.Substring(4, 4) + "-" +
+                                                                col.Substring(8);
+                                                    else
+                                                    {
+                                                        Logger.Warn(
+                                                            "Warning: Could not extract subject id - file name:" +
+                                                            file.FullName + ", row:" + rows);
+                                                    }
+                                                    dbSubj.Value = subId;
+                                                }
+                                            }
+                                            //if (colName == "result_str_val")
+                                            //{
+                                            //    if (string.IsNullOrEmpty(col))
+                                            //    {
+                                            //        col = "-999";
+                                            //    }
+                                            //}
                                         }
-                                        //if (colName == "result_str_val")
-                                        //{
-                                        //    if (string.IsNullOrEmpty(col))
-                                        //    {
-                                        //        col = "-999";
-                                        //    }
-                                        //}
                                     }
                                 }
-
                                 //special db columns
                                 var dbColSpecial = dbColList.Find(x => x.Name == "computerName");
 
